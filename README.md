@@ -1,2 +1,2 @@
 # tensorfun
-Random tensorflow scripts
+Random tensorflow scripts that I've written for my own education and amusement.
