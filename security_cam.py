@@ -21,10 +21,13 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+"""tensorflow image classification script used to determine if someone is at my front door."""
 
+import ConfigParser
 import argparse
 import cv2
 import os
+import signal
 import sys
 import numpy as np
 import tensorflow as tf
@@ -36,6 +39,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 x = 640
 y = 360
 depth = 3
+quitting = False
 
 class my_callback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs={}):
@@ -43,12 +47,36 @@ class my_callback(tf.keras.callbacks.Callback):
             print("\nReached 60% accuracy so cancelling training!")
             self.model.stop_training = True
 
+def signal_handler(signal, frame):
+    global quitting
+    print("Quitting...")
+    quitting = True
+
+def post_to_slack(config, message):
+    """Post a message to the the slack channel specified in the configuration file."""
+    try:
+        key = config.get('Slack', 'key')
+        channel = config.get('Slack', 'channel')
+
+        from slacker import Slacker
+        slack = Slacker(key)
+        slack.chat.post_message(channel, message)
+    except ConfigParser.NoOptionError:
+        pass
+    except ConfigParser.NoSectionError:
+        pass
+    except ImportError:
+        print("Failed ot import Slacker. Cannot post to Slack. Either install the module or remove the Slack section from the configuration file.")
+    except:
+        pass
+
 def show_training_images(train_label1_dir, train_label2_dir):
+    """For debuggging purposes, shows the images used to fit the model."""
     import matplotlib.pyplot as plt
     import matplotlib.image as mpimg
 
-    train_person_names = os.listdir(train_label1_dir)
-    train_not_person_names = os.listdir(train_label2_dir)
+    train_label1_names = os.listdir(train_label1_dir)
+    train_label2_names = os.listdir(train_label2_dir)
 
     # Parameters for our graph; we'll output images in a 4x4 configuration.
     nrows = 4
@@ -62,8 +90,8 @@ def show_training_images(train_label1_dir, train_label2_dir):
     fig.set_size_inches(ncols * 4, nrows * 4)
 
     pic_index += 8
-    next_person_pix = [os.path.join(train_label1_dir, fname) for fname in train_person_names[pic_index-8:pic_index]]
-    next_non_person_pix = [os.path.join(train_label2_dir, fname) for fname in train_not_person_names[pic_index-8:pic_index]]
+    next_person_pix = [os.path.join(train_label1_dir, fname) for fname in train_label1_names[pic_index-8:pic_index]]
+    next_non_person_pix = [os.path.join(train_label2_dir, fname) for fname in train_label2_names[pic_index-8:pic_index]]
 
     for i, img_path in enumerate(next_person_pix + next_non_person_pix):
         # Set up subplot; subplot indices start at 1.
@@ -128,26 +156,34 @@ def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
 
     return model
 
-def predict_from_file(model, file_name):
-    print("Testing " + file_name + "...")
-
-    img = image.load_img(file_name, target_size=(x, y))
-    img_array = image.img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
+def predict_from_img_data(model, img_data):
+    img_array = np.expand_dims(img_data, axis=0)
 
     images = np.vstack([img_array])
     classes = model.predict(images, batch_size=10)
     print(classes[0])
     if classes[0] > 0.5:
-        print(file_name + " is a person.")
+        print("Person detected!")
     else:
-        print(file_name + " is not a person.")
+        print("Person not detected.")
 
-def predict_from_rtsp(mode, url):
-    print("Connecting to RTSP stream " + url)
+def predict_from_file(model, file_name):
+    print("Testing " + file_name + "...")
+
+    img = image.load_img(file_name, target_size=(x, y))
+    img_array = image.img_to_array(img)
+    predict_from_img_data(model, img_array)
+
+def predict_from_rtsp(model, url):
+    print("Connecting to RTSP stream " + url + "...")
+
+    global quitting
     cap = cv2.VideoCapture(url)
-    while cap.isOpened():
+    while cap.isOpened() and not quitting:
         ret, frame = cap.read()
+        frame = frame.reshape(x, y, depth)
+        img_array = image.img_to_array(frame)
+        predict_from_img_data(model, img_array)
     cap.release()
 
 def main():
@@ -161,6 +197,7 @@ def main():
     parser.add_argument("--predict-file", default="", help="Test the specified file against the model.", required=False)
     parser.add_argument("--predict-rtsp", default="", help="Test samples from the RTSP stream against the model.", required=False)
     parser.add_argument("--show-images", action="store_true", default=False, help="Show images used for training.", required=False)
+    parser.add_argument("--config", type=str, action="store", default="", help="The configuration file", required=False)
 
     try:
         args = parser.parse_args()
@@ -170,6 +207,9 @@ def main():
 
     train_label1_dir = os.path.join(args.input_dir, 'person')
     train_label2_dir = os.path.join(args.input_dir, 'not_person')
+
+    # Register the signal handler.
+    signal.signal(signal.SIGINT, signal_handler)
 
     # For debugging/demonstration purposes.
     if args.show_images:
@@ -184,7 +224,7 @@ def main():
         # Save it so we don't have to do this again.
         if len(args.model) > 0:
             model.save(args.model)
-    
+
     # Load the model from file.
     else:
         model = tf.keras.models.load_model(args.model)
@@ -193,7 +233,7 @@ def main():
     if len(args.predict_file) > 0:
         predict_from_file(model, args.predict_file)
     if len(args.predict_rtsp) > 0:
-        predict_from_file(model, args.predict_rtsp)
+        predict_from_rtsp(model, args.predict_rtsp)
 
 if __name__ == "__main__":
     main()
