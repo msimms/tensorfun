@@ -23,7 +23,6 @@
 # SOFTWARE.
 """tensorflow image classification script used to determine if someone is at my front door."""
 
-import ConfigParser
 import argparse
 import cv2
 import os
@@ -35,6 +34,11 @@ from tensorflow.keras import optimizers
 from tensorflow.keras.optimizers import RMSprop
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+if sys.version_info[0] < 3:
+    import ConfigParser as configparser
+else:
+    import configparser
 
 x = 640
 y = 360
@@ -61,9 +65,9 @@ def post_to_slack(config, message):
         from slacker import Slacker
         slack = Slacker(key)
         slack.chat.post_message(channel, message)
-    except ConfigParser.NoOptionError:
+    except configparser.NoOptionError:
         pass
-    except ConfigParser.NoSectionError:
+    except configparser.NoSectionError:
         pass
     except ImportError:
         print("Failed ot import Slacker. Cannot post to Slack. Either install the module or remove the Slack section from the configuration file.")
@@ -94,6 +98,7 @@ def show_training_images(train_label1_dir, train_label2_dir):
     next_non_person_pix = [os.path.join(train_label2_dir, fname) for fname in train_label2_names[pic_index-8:pic_index]]
 
     for i, img_path in enumerate(next_person_pix + next_non_person_pix):
+
         # Set up subplot; subplot indices start at 1.
         sp = plt.subplot(nrows, ncols, i + 1)
 
@@ -141,12 +146,12 @@ def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
 
     # Flow training images in batches of 128 using train_datagen generator.
     print("Training data...")
-    train_generator = train_datagen.flow_from_directory(input_dir, target_size=(x, y), batch_size=128, class_mode='binary')
+    train_generator = train_datagen.flow_from_directory(input_dir, target_size=(x, y), batch_size=16, class_mode='binary')
 
     # Flow validation images in batches of 32.
     if len(validation_dir) > 0:
         print("Validation data...")
-        validation_generator = validation_datagen.flow_from_directory(validation_dir, target_size=(x, y), batch_size=32, class_mode='binary')
+        validation_generator = validation_datagen.flow_from_directory(validation_dir, target_size=(x, y), batch_size=16, class_mode='binary')
     else:
         validation_generator = None
 
@@ -157,17 +162,18 @@ def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
     return model
 
 def predict_from_img_data(model, img_data):
+    """Score raw image data against the model."""
     img_array = np.expand_dims(img_data, axis=0)
 
     images = np.vstack([img_array])
     classes = model.predict(images, batch_size=10)
-    print(classes[0])
     if classes[0] > 0.5:
-        print("Person detected!")
+        print("Person detected! " + str(classes[0]))
     else:
-        print("Person not detected.")
+        print("Person not detected. " + str(classes[0]))
 
 def predict_from_file(model, file_name):
+    """Score a file against the model."""
     print("Testing " + file_name + "...")
 
     img = image.load_img(file_name, target_size=(x, y))
@@ -175,6 +181,7 @@ def predict_from_file(model, file_name):
     predict_from_img_data(model, img_array)
 
 def predict_from_rtsp(model, url):
+    """Score samples from an RTSP stream against the model."""
     print("Connecting to RTSP stream " + url + "...")
 
     global quitting
@@ -185,6 +192,14 @@ def predict_from_rtsp(model, url):
         img_array = image.img_to_array(frame)
         predict_from_img_data(model, img_array)
     cap.release()
+
+def load_config(config_file_name):
+    """Loads the configuration file."""
+    with open(config_file_name) as f:
+        sample_config = f.read()
+    config = configparser.RawConfigParser(allow_no_value=True)
+    config.readfp(io.BytesIO(sample_config))
+    return config
 
 def main():
     """Entry point for the app."""
