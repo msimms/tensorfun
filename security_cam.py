@@ -180,6 +180,14 @@ def predict_from_file(model, file_name):
     img_array = image.img_to_array(img)
     predict_from_img_data(model, img_array)
 
+def predict_from_dir(model, dir_name):
+    """Score a directory of files against the model."""
+    items = os.listdir(dir_name)
+    for item in items:
+        file_name = os.path.join(dir_name, item)
+        if os.path.isfile(file_name):
+            predict_from_file(model, file_name)
+
 def predict_from_rtsp(model, url):
     """Score samples from an RTSP stream against the model."""
     print("Connecting to RTSP stream " + url + "...")
@@ -210,6 +218,7 @@ def main():
     parser.add_argument("--validation-dir", default="", help="Directory containing the validation files used to validate the model.", required=False)
     parser.add_argument("--model", default="", help="File name for either saving or loading the model.", required=False)
     parser.add_argument("--predict-file", default="", help="Test the specified file against the model.", required=False)
+    parser.add_argument("--predict-dir", default="", help="Test the specified files against the model.", required=False)
     parser.add_argument("--predict-rtsp", default="", help="Test samples from the RTSP stream against the model.", required=False)
     parser.add_argument("--show-images", action="store_true", default=False, help="Show images used for training.", required=False)
     parser.add_argument("--config", type=str, action="store", default="", help="The configuration file", required=False)
@@ -247,6 +256,8 @@ def main():
     # Test the model against real data.
     if len(args.predict_file) > 0:
         predict_from_file(model, args.predict_file)
+    if len(args.predict_dir) > 0:
+        predict_from_dir(model, args.predict_dir)
     if len(args.predict_rtsp) > 0:
         predict_from_rtsp(model, args.predict_rtsp)
 
