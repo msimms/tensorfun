@@ -25,6 +25,7 @@
 
 import argparse
 import cv2
+import io
 import os
 import signal
 import sys
@@ -161,34 +162,36 @@ def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
 
     return model
 
-def predict_from_img_data(model, img_data):
+def predict_from_img_data(model, config, img_data):
     """Score raw image data against the model."""
     img_array = np.expand_dims(img_data, axis=0)
-
     images = np.vstack([img_array])
     classes = model.predict(images, batch_size=10)
     if classes[0] > 0.5:
         print("Person detected! " + str(classes[0]))
+        post_to_slack(config, "Person detected! " + str(classes[0]))
     else:
         print("Person not detected. " + str(classes[0]))
 
-def predict_from_file(model, file_name):
+def predict_from_file(model, config, file_name):
     """Score a file against the model."""
     print("Testing " + file_name + "...")
 
     img = image.load_img(file_name, target_size=(x, y))
     img_array = image.img_to_array(img)
-    predict_from_img_data(model, img_array)
+    predict_from_img_data(model, config, img_array)
 
-def predict_from_dir(model, dir_name):
+def predict_from_dir(model, config, dir_name):
     """Score a directory of files against the model."""
+    print("Testing " + dir_name + "...")
+
     items = os.listdir(dir_name)
     for item in items:
         file_name = os.path.join(dir_name, item)
         if os.path.isfile(file_name):
-            predict_from_file(model, file_name)
+            predict_from_file(model, config, file_name)
 
-def predict_from_rtsp(model, url):
+def predict_from_rtsp(model, config, url):
     """Score samples from an RTSP stream against the model."""
     print("Connecting to RTSP stream " + url + "...")
 
@@ -198,15 +201,18 @@ def predict_from_rtsp(model, url):
         ret, frame = cap.read()
         frame = frame.reshape(x, y, depth)
         img_array = image.img_to_array(frame)
-        predict_from_img_data(model, img_array)
+        predict_from_img_data(model, config, img_array)
     cap.release()
 
 def load_config(config_file_name):
     """Loads the configuration file."""
-    with open(config_file_name) as f:
-        sample_config = f.read()
     config = configparser.RawConfigParser(allow_no_value=True)
-    config.readfp(io.BytesIO(sample_config))
+    if sys.version_info[0] < 3:
+        with open(config_file_name) as f:
+            sample_config = f.read()
+        config.readfp(io.BytesIO(sample_config))
+    else:
+        config.read(config_file_name)
     return config
 
 def main():
@@ -216,12 +222,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", default="", help="Directory containing the input files used to train the model.", required=False)
     parser.add_argument("--validation-dir", default="", help="Directory containing the validation files used to validate the model.", required=False)
-    parser.add_argument("--model", default="", help="File name for either saving or loading the model.", required=False)
     parser.add_argument("--predict-file", default="", help="Test the specified file against the model.", required=False)
     parser.add_argument("--predict-dir", default="", help="Test the specified files against the model.", required=False)
     parser.add_argument("--predict-rtsp", default="", help="Test samples from the RTSP stream against the model.", required=False)
     parser.add_argument("--show-images", action="store_true", default=False, help="Show images used for training.", required=False)
-    parser.add_argument("--config", type=str, action="store", default="", help="The configuration file", required=False)
+    parser.add_argument("--config", type=str, action="store", default="", help="The configuration file", required=True)
 
     try:
         args = parser.parse_args()
@@ -235,6 +240,9 @@ def main():
     # Register the signal handler.
     signal.signal(signal.SIGINT, signal_handler)
 
+    # Parse the config file.
+    config = load_config(args.config)
+
     # For debugging/demonstration purposes.
     if args.show_images:
         show_training_images(train_label1_dir, train_label2_dir)
@@ -247,19 +255,19 @@ def main():
 
         # Save it so we don't have to do this again.
         if len(args.model) > 0:
-            model.save(args.model)
+            model.save(config.get('General', 'Model'))
 
     # Load the model from file.
     else:
-        model = tf.keras.models.load_model(args.model)
+        model = tf.keras.models.load_model(config.get('General', 'Model'))
 
     # Test the model against real data.
     if len(args.predict_file) > 0:
-        predict_from_file(model, args.predict_file)
+        predict_from_file(model, config, args.predict_file)
     if len(args.predict_dir) > 0:
-        predict_from_dir(model, args.predict_dir)
+        predict_from_dir(model, config, args.predict_dir)
     if len(args.predict_rtsp) > 0:
-        predict_from_rtsp(model, args.predict_rtsp)
+        predict_from_rtsp(model, config, args.predict_rtsp)
 
 if __name__ == "__main__":
     main()
