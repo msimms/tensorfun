@@ -26,6 +26,7 @@
 import argparse
 import cv2
 import io
+import math
 import os
 import signal
 import sys
@@ -112,7 +113,12 @@ def show_training_images(train_label1_dir, train_label2_dir):
     plt.show()
 
 def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
-    callbacks = my_callback()
+    my_callbacks = []
+    train_label1_names = os.listdir(train_label1_dir)
+    train_label2_names = os.listdir(train_label2_dir)
+    batch_size = 8
+    num_samples = len(train_label1_names) + len(train_label2_names)
+    steps_per_epoch = math.ceil(num_samples / batch_size)
 
     model = tf.keras.models.Sequential([
         # First convolution.
@@ -146,19 +152,21 @@ def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
     validation_datagen = ImageDataGenerator(rescale=1/255)
 
     # Flow training images in batches of 128 using train_datagen generator.
-    print("Training data...")
-    train_generator = train_datagen.flow_from_directory(input_dir, target_size=(x, y), batch_size=16, class_mode='binary')
+    print("Loading training data...")
+    train_generator = train_datagen.flow_from_directory(input_dir, target_size=(x, y), batch_size=batch_size, class_mode='binary')
+    train_generator.shuffle = True
 
     # Flow validation images in batches of 32.
     if len(validation_dir) > 0:
-        print("Validation data...")
-        validation_generator = validation_datagen.flow_from_directory(validation_dir, target_size=(x, y), batch_size=16, class_mode='binary')
+        print("Loading validation data...")
+        validation_generator = validation_datagen.flow_from_directory(validation_dir, target_size=(x, y), batch_size=batch_size, class_mode='binary')
+        validation_generator.shuffle = True
     else:
         validation_generator = None
 
     # Fit the model.
     print("Fitting model...")
-    history = model.fit(train_generator, steps_per_epoch=8, epochs=15, verbose=1, validation_data=validation_generator, validation_steps=8)
+    history = model.fit(train_generator, steps_per_epoch=steps_per_epoch, epochs=10, verbose=1, validation_data=validation_generator, validation_steps=8, callbacks=my_callbacks)
 
     return model
 
@@ -167,11 +175,12 @@ def predict_from_img_data(model, config, img_data):
     img_array = np.expand_dims(img_data, axis=0)
     images = np.vstack([img_array])
     classes = model.predict(images, batch_size=10)
-    if classes[0] > 0.5:
-        print("Person detected! " + str(classes[0]))
-        post_to_slack(config, "Person detected! " + str(classes[0]))
+    score = classes[0]
+    if score > 0.5:
+        print("Person detected! " + str(score))
+        post_to_slack(config, "Person detected! " + str(score))
     else:
-        print("Person not detected. " + str(classes[0]))
+        print("Person not detected. " + str(score))
 
 def predict_from_file(model, config, file_name):
     """Score a file against the model."""
@@ -254,8 +263,7 @@ def main():
         model = build_model(args.input_dir, args.validation_dir, train_label1_dir, train_label2_dir)
 
         # Save it so we don't have to do this again.
-        if len(args.model) > 0:
-            model.save(config.get('General', 'Model'))
+        model.save(config.get('General', 'Model'))
 
     # Load the model from file.
     else:
