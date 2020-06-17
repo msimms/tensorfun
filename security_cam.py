@@ -30,6 +30,7 @@ import math
 import os
 import signal
 import sys
+import time
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import optimizers
@@ -46,6 +47,7 @@ x = 640
 y = 360
 depth = 3
 quitting = False
+rate = 1000.0 # rate (in ms) at which to sample to the RTSP stream
 
 class my_callback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs={}):
@@ -55,6 +57,7 @@ class my_callback(tf.keras.callbacks.Callback):
 
 def signal_handler(signal, frame):
     global quitting
+
     print("Quitting...")
     quitting = True
 
@@ -113,6 +116,8 @@ def show_training_images(train_label1_dir, train_label2_dir):
     plt.show()
 
 def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
+    global x, y, depth
+
     my_callbacks = []
     train_label1_names = os.listdir(train_label1_dir)
     train_label2_names = os.listdir(train_label2_dir)
@@ -204,13 +209,17 @@ def predict_from_rtsp(model, config, url):
     """Score samples from an RTSP stream against the model."""
     print("Connecting to RTSP stream " + url + "...")
 
+    global x, y, depth
     global quitting
+    global rate
+
     cap = cv2.VideoCapture(url)
     while cap.isOpened() and not quitting:
         ret, frame = cap.read()
         frame = frame.reshape(x, y, depth)
         img_array = image.img_to_array(frame)
         predict_from_img_data(model, config, img_array)
+        time.sleep(rate / 1000.0)
     cap.release()
 
 def load_config(config_file_name):
@@ -235,7 +244,7 @@ def main():
     parser.add_argument("--predict-dir", default="", help="Test the specified files against the model.", required=False)
     parser.add_argument("--predict-rtsp", default="", help="Test samples from the RTSP stream against the model.", required=False)
     parser.add_argument("--show-images", action="store_true", default=False, help="Show images used for training.", required=False)
-    parser.add_argument("--config", type=str, action="store", default="", help="The configuration file", required=True)
+    parser.add_argument("--config", type=str, action="store", default="", help="The configuration file.", required=True)
 
     try:
         args = parser.parse_args()
