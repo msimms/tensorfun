@@ -175,6 +175,13 @@ def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
 
     return model
 
+def show_test_image(data):
+    """For debuggging purposes, shows the images used to fit the model."""
+    import matplotlib.pyplot as plt
+
+    plt.imshow(data)
+    plt.show()
+
 def predict_from_img_data(model, config, img_data):
     """Score raw image data against the model."""
     img_array = np.expand_dims(img_data, axis=0)
@@ -187,15 +194,21 @@ def predict_from_img_data(model, config, img_data):
     else:
         print("Person not detected. " + str(score))
 
-def predict_from_file(model, config, file_name):
+def predict_from_file(model, config, file_name, show_image):
     """Score a file against the model."""
     print("Testing " + file_name + "...")
 
-    img = image.load_img(file_name, target_size=(x, y))
+    global x, y, depth
+    global quitting
+    global rate
+
+    img = image.load_img(file_name, target_size=(x, y, depth))
     img_array = image.img_to_array(img)
     predict_from_img_data(model, config, img_array)
+    if show_image:
+        show_test_image(img)
 
-def predict_from_dir(model, config, dir_name):
+def predict_from_dir(model, config, dir_name, show_images):
     """Score a directory of files against the model."""
     print("Testing " + dir_name + "...")
 
@@ -203,9 +216,9 @@ def predict_from_dir(model, config, dir_name):
     for item in items:
         file_name = os.path.join(dir_name, item)
         if os.path.isfile(file_name):
-            predict_from_file(model, config, file_name)
+            predict_from_file(model, config, file_name, show_images)
 
-def predict_from_rtsp(model, config, url):
+def predict_from_rtsp(model, config, url, show_images):
     """Score samples from an RTSP stream against the model."""
     print("Connecting to RTSP stream " + url + "...")
 
@@ -215,10 +228,12 @@ def predict_from_rtsp(model, config, url):
 
     cap = cv2.VideoCapture(url)
     while cap.isOpened() and not quitting:
-        ret, frame = cap.read()
-        frame = frame.reshape(x, y, depth)
-        img_array = image.img_to_array(frame)
+        _, frame = cap.read()
+        frame2 = frame.reshape(x, y, depth)
+        img_array = image.img_to_array(frame2)
         predict_from_img_data(model, config, img_array)
+        if show_images:
+            show_test_image(frame)
         time.sleep(rate / 1000.0)
     cap.release()
 
@@ -280,11 +295,11 @@ def main():
 
     # Test the model against real data.
     if len(args.predict_file) > 0:
-        predict_from_file(model, config, args.predict_file)
+        predict_from_file(model, config, args.predict_file, args.show_images)
     if len(args.predict_dir) > 0:
-        predict_from_dir(model, config, args.predict_dir)
+        predict_from_dir(model, config, args.predict_dir, args.show_images)
     if len(args.predict_rtsp) > 0:
-        predict_from_rtsp(model, config, args.predict_rtsp)
+        predict_from_rtsp(model, config, args.predict_rtsp, args.show_images)
 
 if __name__ == "__main__":
     main()
