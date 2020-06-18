@@ -37,6 +37,7 @@ from tensorflow.keras import optimizers
 from tensorflow.keras.optimizers import RMSprop
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import EarlyStopping
 
 if sys.version_info[0] < 3:
     import ConfigParser as configparser
@@ -49,11 +50,6 @@ depth = 3
 quitting = False
 rate = 1000.0 # rate (in ms) at which to sample to the RTSP stream
 
-class my_callback(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, logs={}):
-        if ('accuracy' in logs and logs.get('accuracy') > 0.6):
-            print("\nReached 60% accuracy so cancelling training!")
-            self.model.stop_training = True
 
 def signal_handler(signal, frame):
     global quitting
@@ -119,9 +115,11 @@ def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
     global x, y, depth
 
     my_callbacks = []
+    my_callbacks.append(EarlyStopping(monitor='loss', patience=3))
+
     train_label1_names = os.listdir(train_label1_dir)
     train_label2_names = os.listdir(train_label2_dir)
-    batch_size = 8
+    batch_size = 1
     num_samples = len(train_label1_names) + len(train_label2_names)
     steps_per_epoch = math.ceil(num_samples / batch_size)
 
@@ -158,20 +156,25 @@ def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
 
     # Flow training images in batches of 128 using train_datagen generator.
     print("Loading training data...")
-    train_generator = train_datagen.flow_from_directory(input_dir, target_size=(x, y), batch_size=batch_size, class_mode='binary')
+    train_generator = train_datagen.flow_from_directory(input_dir, target_size=(x, y), batch_size=batch_size, class_mode='binary', color_mode="rgb")
     train_generator.shuffle = True
 
     # Flow validation images in batches of 32.
     if len(validation_dir) > 0:
         print("Loading validation data...")
-        validation_generator = validation_datagen.flow_from_directory(validation_dir, target_size=(x, y), batch_size=batch_size, class_mode='binary')
+        validation_generator = validation_datagen.flow_from_directory(validation_dir, target_size=(x, y), batch_size=batch_size, class_mode='binary', color_mode="rgb")
         validation_generator.shuffle = True
     else:
         validation_generator = None
 
     # Fit the model.
-    print("Fitting model...")
-    history = model.fit(train_generator, steps_per_epoch=steps_per_epoch, epochs=10, verbose=1, validation_data=validation_generator, validation_steps=8, callbacks=my_callbacks)
+    print("Fitting the model...")
+    num_validation_steps = 8
+    history = model.fit(train_generator, steps_per_epoch=steps_per_epoch, epochs=16, verbose=1, validation_data=validation_generator, validation_steps=num_validation_steps, callbacks=my_callbacks)
+
+    # Evaluate the model.
+    print("Evaluating the model...")
+    model.evaluate_generator(generator=validation_generator, steps=num_validation_steps)
 
     return model
 
@@ -181,6 +184,10 @@ def show_test_image(data):
 
     plt.imshow(data)
     plt.show()
+
+def rgb2gray(rgb):
+    """Utility function for converting image data to grayscale."""
+    return np.dot(rgb[...,:3], [0.5, 0.5, 0.5])
 
 def predict_from_img_data(model, config, img_data):
     """Score raw image data against the model."""
@@ -228,12 +235,12 @@ def predict_from_rtsp(model, config, url, show_images):
 
     cap = cv2.VideoCapture(url)
     while cap.isOpened() and not quitting:
-        _, frame = cap.read()
-        frame2 = frame.reshape(x, y, depth)
-        img_array = image.img_to_array(frame2)
+        _, original_image = cap.read()
+        resized_image = original_image.reshape(x, y, depth)
+        img_array = image.img_to_array(resized_image)
         predict_from_img_data(model, config, img_array)
         if show_images:
-            show_test_image(frame)
+            show_test_image(resized_image)
         time.sleep(rate / 1000.0)
     cap.release()
 
