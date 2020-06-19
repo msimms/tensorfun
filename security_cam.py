@@ -174,7 +174,7 @@ def build_model(input_dir, validation_dir, train_label1_dir, train_label2_dir):
 
     # Evaluate the model.
     print("Evaluating the model...")
-    model.evaluate_generator(generator=validation_generator, steps=num_validation_steps)
+    print(model.evaluate(x=validation_generator, steps=num_validation_steps))
 
     return model
 
@@ -185,15 +185,12 @@ def show_test_image(data):
     plt.imshow(data)
     plt.show()
 
-def rgb2gray(rgb):
-    """Utility function for converting image data to grayscale."""
-    return np.dot(rgb[...,:3], [0.5, 0.5, 0.5])
-
-def predict_from_img_data(model, config, img_data):
+def predict_from_img_data(model, config, img):
     """Score raw image data against the model."""
-    img_array = np.expand_dims(img_data, axis=0)
+    img_array = image.img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0)
     images = np.vstack([img_array])
-    classes = model.predict(images, batch_size=10)
+    classes = model.predict(images, batch_size=1)
     score = classes[0]
     if score > 0.5:
         print("Person detected! " + str(score))
@@ -210,8 +207,7 @@ def predict_from_file(model, config, file_name, show_image):
     global rate
 
     img = image.load_img(file_name, target_size=(x, y, depth))
-    img_array = image.img_to_array(img)
-    predict_from_img_data(model, config, img_array)
+    predict_from_img_data(model, config, img)
     if show_image:
         show_test_image(img)
 
@@ -236,9 +232,9 @@ def predict_from_rtsp(model, config, url, show_images):
     cap = cv2.VideoCapture(url)
     while cap.isOpened() and not quitting:
         _, original_image = cap.read()
-        resized_image = original_image.reshape(x, y, depth)
-        img_array = image.img_to_array(resized_image)
-        predict_from_img_data(model, config, img_array)
+        #resized_image = original_image.reshape(x, y, depth)
+        #gray_image = tf.image.rgb_to_grayscale(resized_image)
+        predict_from_img_data(model, config, original_image)
         if show_images:
             show_test_image(resized_image)
         time.sleep(rate / 1000.0)
