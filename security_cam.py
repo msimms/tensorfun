@@ -279,12 +279,12 @@ def main():
     # Parse the config file.
     config = load_config(args.config)
 
-    # For debugging/demonstration purposes.
-    if args.show_images:
-        show_training_images(train_label1_dir, train_label2_dir)
-
     # Either train or load the model.
     if len(args.input_dir) > 0:
+
+        # For debugging/demonstration purposes.
+        if args.show_images:
+            show_training_images(train_label1_dir, train_label2_dir)
 
         # Train the model.
         model = build_model(args.input_dir, args.validation_dir, train_label1_dir, train_label2_dir)
