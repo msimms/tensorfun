@@ -232,9 +232,9 @@ def predict_from_rtsp(model, config, url, show_images):
     cap = cv2.VideoCapture(url)
     while cap.isOpened() and not quitting:
         _, original_image = cap.read()
-        #resized_image = original_image.reshape(x, y, depth)
+        resized_image = original_image.reshape(x, y, depth)
         #gray_image = tf.image.rgb_to_grayscale(resized_image)
-        predict_from_img_data(model, config, original_image)
+        predict_from_img_data(model, config, resized_image)
         if show_images:
             show_test_image(resized_image)
         time.sleep(rate / 1000.0)
